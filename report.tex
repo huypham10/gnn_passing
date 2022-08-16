@@ -1,0 +1,804 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+% The preceding line is only needed to identify funding in the first footnote. If that is unneeded, please comment it out.
+\usepackage{multirow}
+\usepackage[backend=biber, style=apa]{biblatex}
+\addbibresource{Dissertation_Paper_Template - LATEX/alo.bib}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{lscape}
+\usepackage{hyperref}
+\hypersetup{
+     colorlinks = true,
+     linkcolor = [rgb]{0.035,0.337,0.643},
+     filecolor = [rgb]{0.035,0.337,0.643},
+     citecolor = black,      
+     urlcolor = [rgb]{0.035,0.337,0.643},
+     }
+\usepackage[T1]{fontenc}
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+\begin{document}
+
+\title{Measuring Risk \& Reward of Passes in Football with broadcast-generated Event-tracking Hybrid data}
+
+\author{\IEEEauthorblockN{Huy Quang Pham}
+\IEEEauthorblockA{\textit{Student ID - 210797699} \\
+\textit{MSc. Data Science and AI (conversion)} \\
+Queen Mary University of London, London, U.K. \\}
+}
+
+\maketitle
+
+
+
+
+
+
+
+\begin{abstract}
+A pass is the most frequently occurring event in a football match, and arguably the most potent tool. However, traditional methods to measure passing quality of a player or a team either only consider whether a pass is completed, or are entirely subjective (common terms such as "poor ball", "outrageous", "not enough power" etc.), thus inadequate for meaningful analyses. The goal of this study is to develop a framework that utilises hybrid event-tracking data generated from broadcasting videos to objectively measure the risk and reward of every pass by respectively estimating the probability for that pass to be completed and the probability for that pass to lead to a goal-scoring chance. Two separate approaches are proposed, the first being a "classic" logistic regression model with hand-crafted features; and the second a novel Graph Convolution Network using graph representations of the players' on-field positions as input. We also discuss in detail the theoretical benefits of applying graph representation and graph neural network for these types of problems. The first approach reached AUC of 0.92 and log-loss of 0.24 for the risk model; and 0.80 AUC and log-loss of 0.29 for the reward model, significantly outperformed the second approach. The Graph neural network for risk was not as accurate as the Naive baseline model, while the network for reward did not converge. We showcase several practical applications of our framework's output. Finally, we discuss several factors which may have contributed to the under-performance of our graph neural network architecture.
+\end{abstract}
+
+
+
+
+
+
+
+
+\section{Introduction \& problem statement}
+A legendary English footballer famously said: "Football is a simple game; 22 men chase a ball for 90 minutes and at the end, the Germans win." While the latter clause might not always be true (observation: Euro 2020), the overarching rule of football is indeed extremely straightforward: a team scores a goal by moving the ball into the goal of their opponent, and the team that scores more goals in a match wins. In order to increase their chances of winning, teams can utilise multiple strategies to form attacks and organise defences. However, every strategy a team may deploy all revolves around the most basic tool in football: a pass. A pass is defined as an action to move possession of the ball from one teammate to another to either move it closer to their opponent's goal to score, or prevent the opponent from moving it closer to their team's goal. Passes are the most frequent event in any football match \parencite{goespassassist, riskrewardpower}, and given elite football's recent trend of relentless pressing and numerical superiority, they are also arguably the most potent tool a team can use in attack, or exploit in defence.
+
+Nonetheless, surprisingly low emphasis has been put on analysing passes. Traditional methods to measure passes are either too simplistic, or too subjective. The ubiquitous metric of passing performance is pass completion rate. Several research have shown that this is a strong indicator of overall team performance \parencite{bradley, krol} and it is widely used in the media as a proxy for performance and style of play. However, this metric only evaluate passes on a binary level without taking contexts of that pass into consideration (level of difficulty, the value provided etc.). For instance, Kevin De Bruyne who is widely considered one of the greatest passers of the ball, registered a lower \% passing accuracy in the 2021-22 Premier League season than 6 midfielders of Norwich City, who finished bottom of the league. This clearly shows that using passing accuracy is inadequate to assess passing quality. 
+
+On the opposite end, it is common for commentators to describe passes using expressions such as "great ball", "majestic", "pinpoint", "loose pass", "sloppy", "safe". These descriptions of passes vaguely convey the overall context and nature of a pass. However, they are entirely subjective with little substance, and cannot be aggregated to assess the passing quality of a player or team, making them unfit for meaningful analyses. A better, more objective and quantifiable system to evaluate passes is therefore needed.
+
+This project sets out to develop such a framework to quantify the risk and reward of a pass, using a hybrid of event-tracking data set generated from broadcast videos. The aim is to: (1) generate a suitable representation for all passes from this type of data that minimizes loss of information; and (2) develop models that incorporates these representations to assess these two aspects of each pass. We propose two separate approaches: logistic regression models using hand-crafted features; and graph neural networks that can learn the features from graph representations of players' positions and inter-relations. Finally, we discuss the output's potential applications in multiple aspects of football.
+
+
+
+
+
+
+
+
+
+
+
+\section{Background}
+This section first introduces an overview of the evolution of football data sets (\textbf{\ref{bgdata}}). Then we review past literature work on measuring passing quality (\textbf{\ref{lit}}), and the challenge of dealing with unstructured data (\textbf{\ref{bgunstr}}). Finally, we discuss graph representation and graph neural network's potential to circumvent this obstacle (\textbf{\ref{graphlit}}). 
+
+
+
+
+
+\subsection{Evolution of football data sets}\label{bgdata}
+
+The ever-growing popularity of football analytics have seen continuous updates to data sets. General match descriptors (number of goals, shots on/off target, passes or possession percentage etc.) are the most basic and most readily available data set type. These have been widely used to study indicators of match outcomes \parencite{penas, Castellano, liu}.
+
+Event data sets are more granular and represent the next step in football data sets. These are manual or systematic logs of all on-ball actions like passes, tackles, carries, or shots, which capture location, timestamp, the actor, etc. of each event. These data sets allow for more generalized analyses of topics such as Expected Goals \parencite{xg}, Valuing Actions by Estimating Probabilities \parencite{decroos}, Expected Threat \parencite{xthreat}. 
+
+Recent advancements in computer vision technology have given rise to tracking data sets which tracks every player and the ball’s position at any given time \parencite{xPass2022}. Tracking data sets address the absence of off-the-ball information in event data sets. Additional features extracted allow for new areas of study such as pitch control \parencite{Fernandez2018}, defensive analysis \parencite{counterpressing, GNNPaulPower}, as well as player role \parencite{Bialkowski2014} and team structure \parencite{Bialkowski2016}. 
+
+However, as noted in aforementioned literatures that used tracking data, event and tracking data are usually captured separately and require time-consuming pre-processing and synchronization to be ready for analysis \parencite{Fernandez2018, xPass2022, goesriskreward}. Moreover, they are usually captured separately and thus have limited public avilability. This was an important factor for our project's data choice, which we will discuss in \textbf{sub-section \ref{data}}.
+
+
+
+
+
+
+
+\subsection{Valuing passes in literature}\label{lit}
+
+This section focuses on past literature specifically on assessing passes. \textcite{decroos2017starss} assigned values to passes by valuing action sequences using dynamic time warping and k-nearest neighbor, and splitting each sequence's value to each action according to its relevance. \textcite{horton} had domain experts' grade passes as 'good', 'OK' and 'bad' as labels for a passing quality model which uses dominant region of a player as representation for the likelihood of a pass being cut off. A drawback the study highlighted was the inconsistency among experts' label choices, which comes back to the issue of subjectivity. 
+
+More recent studies highlighted 2 separate dimensions of a pass: risk and reward \parencite{riskrewardpower, goesriskreward}. This decomposed approach offers a simpler task to model and quantify each pass, as showcased by \textcite{fernandez2019decomposing}, whose Expected Possession Value framework value each pass by generating: probability of choosing to pass, probability of choosing that pass destination, probability of that pass being successful and probability that pass would lead to a goal scored, goal conceded, or no goal. 
+
+The risk of a pass is widely defined as the likelihood for a pass to be completed \parencite{xPass2022, riskrewardpower, spearman2017physics, goesriskreward}. Studies typically quantify passing risk by treating it as a binary class probability estimation problem. \textcite{riskrewardpower} combined hand-crafted event (pass location, angle) and tracking-based (closest opposition distance, closest angle) features in a logistic regression model with a final log-loss of 0.21. \textcite{goesriskreward} used similar types of features with a LightGBM classifier with 84.3\% accuracy rate. \textcite{xPass2022} use ball and player movement data to estimate pass targets along with XGBoost model to get a classifier reaching 93.4\% AUC. 
+
+Reward is more ambiguous and is subject to active discussions. Some studies quantify reward as the likelihood of a goal or a shot on goal generated within a fixed timeframe after a pass, again treating it as a binary problem \parencite{goesriskreward,fernandez2019decomposing}. \textcite{qpass} used event data to calculate the value of having possession at each area of the pitch and assign a pass reward by taking the difference between the value at the pass end location and start location. \textcite{goespassassist} measured reward of a pass by how much defensive disruption that pass inflicted on the opponent. All pros and cons of these different methods will be discussed in later sections.
+
+
+
+
+
+
+
+\subsection{Dealing with unstructured football data}\label{bgunstr}
+
+According to \textcite{gnn_framework}, although the fine granularity of tracking data has been a "game-changer" for analyses, important questions regarding optimal format to represent this novel data type remain. Most studies generate features that can be represented as vectors to be compatible to most popular machine learning techniques \parencite{gnn_overall, GNNPaulPower}. These vector representations must exhibit permutation invariance, i.e. the value does not change with regards to the player input order \parencite{gnn_framework}, as well as capture complex interactions and dynamics among individual agents \parencite{kipf2018neural}.
+
+
+
+Other studies resorted to creating hand-crafted features using (1) permutation-invariant functions such as average and sum, or (2) based on a key-point on the pitch such as closest opponent, the goal, etc.. Although it has been shown to be effective in models predicting pass outcomes \parencite{riskrewardpower, goesriskreward, xPass2022}, this approach obviously failed to preserve the complex spatial interaction and relations of players \parencite{gnn_overall, gnn_framework}.
+
+\textcite{wei2013large} proposed aligning players' tracking data to roles within formation templates, and implementing strict ordering based on player roles to aggregate features. However, this implementation succumbs to the varying nature of player roles in different formations, or even same formation but different systems; and does not account for missing players due to red cards, or the nature of the data set itself \parencite{GNNPaulPower}. Another downside is that it enforces predetermined relationships between players, which reduces the framework's flexibility when presented with new data.
+
+\textcite{soccermap, Brefeld} presented an approach of using image representations of tracking data in a convolutional neural network (CNN) for pitch control predictions. Although this method avoids the ordering issue and retains all spatial information as network input, it is essentially capturing a very high-dimensional but sparse representation of a low-dimensional data set. Moreover, the feature generation step can be very time-consuming \parencite{GNNPaulPower} and difficult to implement in real-time systems. 
+
+Such issues have hindered the full potential of tracking / positional data in football studies. However, there is hope: the use of graphs. The following sub-section will briefly introduce graph data structure and graph neural network, discuss its suitability and current applications in sports predictive models.
+
+
+
+
+
+
+
+\subsection{Graphs and graph neural network}\label{graphlit}
+
+A graph data structure stores pairwise relations (edges) between a collection of entities (nodes), as well as the global attributes for that collection of edges and nodes \parencite{gnnbias}. Nodes that share an edge are referred to as neighbours. We will inherit \textcite{gnnbias} proposed denotation of a graph: $G(V,E,U)$, with $V=\{v_i\}_{i=1:N_v}$ a set of nodes and their attributes' vector representation; $E=\{(e_k, r_k, s_k)\}_{k=1:N_e}$ the set of edges, with each $e_k$ the vector representation of the edge's attributes, $r_k$ and $s_k$ the index of sender node and receiver node, respectively; and $V$ global or graph level attributes. An specific graph representation of tracking data was in \textcite{GNNPaulPower}, where each graph represents player tracking associated with a pass, each node represents a player with attributes such as coordinate, speed, angle of motion etc.; each edge describes the link between 2 players with distance and angle of motion as edge features.
+
+
+
+By directly capturing representations of entities and their relations, using a graph data structure in a graph neural network can address aforementioned issues such as permutation invariance or sparse high-dimensionality. However, the powerful idea behind graph and graph neural network (GNN) is that a GNN model can \textbf{learn} the level of influence and dependency between entities to make good predictions rather than having pre-defined relationships. A GNN model can be designed to make graph-level, node-level or edge-level prediction, where a global attribute, node attribute, or edge attribute, respectively, is used as the the predictor (label). In our case, a GNN can use graph representations of tracking data as input to update the vector representations of players (nodes) and their relations (edges) to essentially generate features that capture the quality of passes. These features can then be used to assess the quality of unseen passes.
+
+Most GNN architectures follow the same blueprint specified by \textcite{gnnarchi}, with 3 fundamental layers:
+\begin{itemize}
+\item Permutation equivariant layer: updates the representation of nodes in a graph by aggregating the messages received from the neighbourhood, increasing the GNN's receptive field. The parameters with which nodes are updated are learned through back-propagation.
+\item Local Pooling layer: similar in nature to a pooling layer in convolutional neural networks, this layer specifies a method to generate a coarser graph.
+\item Readout layer: generates a fixed-size embedding of the whole graph, which can be used for graph classification.
+
+\end{itemize}
+
+
+Unlike most popular neural networks, these layers allow GNN architectures to take graphs of varying number of nodes and edges as input in the same network without any issues. The ubiquitous GNN architecture is Graph Convolutional Network (GCN) \parencite{gcn}. GCN uses a mechanism to update the embeddings of all nodes based on messages from their direct neighbours. The values of these messages are dependent on the edge weights between the 2 nodes, the degree of sender and receiver nodes (number of neighbours each node have), and the node features of neighbour nodes. Developments of alternative graph neural network architectures and layers have been an active research area in recent years, with applications in medicine discovery \parencite{gnndrugs}, chip design optimization \parencite{gnnchip}, recommender system \parencite{gnnrecc} etc.. 
+
+Despite the theoretical benefits of applying GNN on complex systems of interacting agents such as team sports \parencite{gnnbias, kipf2018neural, gnn_framework}, only a few studies have incorporated GNN in the analysis of team sports in general. \textcite{gnn_overall} created graph representations from spatio-temporal data and use Graph Convolutional Network (GCV) to predict event outcome in American football and CounterStrike (e-sports). \textcite{GNNPaulPower} used a custom GNN architecture to quantify defensive performances in football by predicting pass destination likelihood and the associated threat. \textcite{gnn_framework} proposed a general tactical graph representation for tracking data and an GNN architecture that uses these representation for supervised learning tasks.
+
+
+
+
+
+
+
+
+
+
+\section{Data and Methodology}
+As stated, this study proposes a framework to generate suitable representations of a pass from hybrid event-tracking data, and generate a measure of the risk and reward of that pass. This section will go over the data set used to develop this framework (\textbf{\ref{data}}), how risk and reward are defined and labeled (\textbf{\ref{riskreward}}), and 2 approaches to implement our framework. We are particularly interested in whether the graph representation and graph neural network aproach (\textbf{\ref{appgnn}}) can outperform the "traditional" hand-crafted feature and logistic regression approach, given its theoretical benefits.
+
+
+
+
+
+\subsection{Data set}\label{data}
+
+
+The data used for both approaches is the Statsbomb 360 contextual event data from all 51 matches in Euro 2020 \parencite{opendata}. This type of data set marries classic event data with freeze-frame positions of players captured on camera \parencite{statsbomb_360}. While obviously less granular than tracking data, it is easier to work with, is available publicly; and its off-ball contextual information are sufficient for in-depth analysis and development of event-based metrics \parencite{statsbomb_pass}. 
+
+Statsbomb event data are similar to other event data sets. For each event, information about timestamp; type (e.g. pass, carry, tackle, pressure); ball coordinates for origin and destination; chain of possession index; team and player in possession; duration; related events and other miscellany are included. In addition, each type of event has a unique set of details. For a pass, additional details include length; angle; height; end location; body part used to make the pass; outcome; technique etc.. Information about location of ball receipt, prior carry or duel events was inferred from related events. 
+
+The freeze frames of each event are captured separately, with each object denoting a player's [x,y] coordinates; whether that player is performing the associated event (actor); whether that player is a keeper; whether that player is a teammate of the actor; the associated event and the visible area captured by the camera angle. 
+
+It is important to note a few limitations of this type of data. Unlike tracking data where each player's identity are specified, this data set does not include the index or any type of identification for players in the freeze-frame. This means that information about the ball-receiver cannot be inferred, and we cannot capture speed and trajectory of each player. Moreover, freeze-frame data are generated from broadcast videos and will not include all players on the pitch. 
+
+In total, there were 54,820 pass events captured, with 47,539 including compatible freeze frames and suitable to be input for models. These passes were then split into a training set (70\%) and a test set (30\%). This split was identical for both approaches for fairer comparisons.
+
+
+
+
+
+
+\subsection{Definition of Pass Risk and Pass Reward}\label{riskreward}
+
+In order to measure the risk and reward of passes, we decided to estimate the likelihood of each pass being unsuccessful (risk), and the likelihood of each pass leading to a desirable outcome (reward). This simplifies the framework to essentially 2 separate binary probabilistic classifiers, consistent with multiple past literature \parencite{riskrewardpower, xPass2022, goesriskreward}. 
+
+Thus, we generate 2 binary variables as labels for the risk and reward models. The label for the risk model is straightforward both in definition and implementation. There is a universal truth to whether a pass is completed or not, and this information is captured in the event data set for each pass. There were 39,838 successful passes out of 47,539, equivalent to 83.8\%.
+
+As discussed in \ref{lit}, the definition for the reward of a pass is fuzzy and depends on individual contexts, given the complexity of football. However, we argue that the ultimate objective of a pass is to create chances in order to score goals, in order to win games. Therefore, we define the "desirable outcome" of a pass to be one leading to a chance (a shot attempt or successful ball receipt in the opponent box) within a 15 second window. Given this definition, we can also refer to our measure of pass reward as the danger of a pass. Since goals and shots are rare events in football (Euro 2020 only saw 142 goals from 1251 shots in all 51 games), so we also included successful ball receipts in the opponent box as chances. \textcite{riskrewardpower} specified a 10 second window based on heuristic coaching choice. However, given the fact that the mean and median possession chain duration (the duration where a team continuously maintain possession) for our data set is 21.24 and 12.63 seconds respectively, we settled on an arbitrary "average" duration of 15 seconds as the observation window. Overall, there were 5,3113 passes that led to a chance, equivalent to 11.11\%.
+
+
+
+
+\subsection{Approach 1: Hand-crafted features with Logistic Regression}\label{methodlog}
+This can be considered a standard and "traditional" approach, as its variants have been implemented in past literature. Features to predict the risk and reward labels are extracted both from event data (structured) and tracking data (unstructured). 
+
+In total, 30 football specific features were created. These generally fit into 3 types:
+\begin{itemize}
+\item Pass-based features: can be derived directly from Statsbomb event data for each pass, including pass length, pass height (categorical), pass location, pass degree, body part used, whether passer is under pressure, type of pass (through ball, cross, deadball, one touch, from duel etc.), timestamp (captured in minutes).
+\item Related / contextual event features: derived from related events or by aggregating over events. These include carry speed, carry distance, ball receipt location, whether ball receiver was under pressure, time since start of possession chain.
+\item Tracking-based features: either used permutation-invariant functions (\% opponent within 5 feet of passer or ball receipt location; min opponent distance to passer or closest degree to the passing angle, etc.) or based on a specific key-point (degree difference between the closest opponent compared to the passing angle).
+
+\end{itemize}
+
+Detailed definitions for all features is specified in \textbf{Table \ref{lr_var}}. Categorical features are one-hot encoded and all features are normalized before being fed into Logistic Regression models to predict pass completion and pass resulting in chance, which generate the measures for pass risk and reward. In order to determine the effects of the hand-crafted tracking features, we decided to train a pair of risk and reward models with event-only features, and another pair that includes tracking features.
+
+Features were generated mainly using the Pandas library; and we used primarily scikit-learn library to train the models. 
+
+\subsection{Approach 2: Graph representation and Graph Convolutional Network}\label{appgnn}
+
+We create a graph representation for each pass. The graphs' structure takes inspiration from the Tactical Graph framework by \textcite{gnn_framework}. A graph $G(V,E,U)$ captures the freeze-frame position data of every player for that pass, with each node (V) representing a player. The node features include the player's x and y-coordinates, team identification, distance and degree to passer, ball receipt location, and both goals. All nodes are connected by undirected edges, with the edge weight being the inverted distance between 2 nodes (edge weight between node $V_i$ and $V_j$ are calculated as $e_{ij}=\frac{max\_distance-distance_(i,j)}{max\_distance}$, with $max\_distance$ the distance between 2 opposite corner flag). This ensures that players closer together have larger edge weights. No global attributes are specified in this case. 
+
+\begin{figure}[htbp]
+
+\centerline{\includegraphics[width=0.46\textwidth]{graph_rep.png}}
+\caption{\textbf{A visualisation of a freeze-frame's graph representation. The dots represent players' position on the pitch, with node features being the players' locations on the pitch, and their locations relative to the 2 goals and the start and end locations of the pass. Each node is connected pairwise to all other nodes and the edge weight represent the inverted distance between 2 players. (The blue octagon represent field of view, not captured in the graph representation.}}
+\label{risky_pass}
+\end{figure}
+
+
+A Graph Convolutional Network (GCN) architecture will be used for both risk and reward networks. The architecture consists of a node-level block and a graph-level block. The first block updates the node embeddings of each graph using 2 GCN layers (with TanH as the non-linear activation function); the graph-level block, contains a readout layer, which uses global mean pooling to generate an embedding for each graph (softmax was applied for each graph's embedding to prevent the features from exploding). Finally, we use a linear layer to reduce the dimensionality of the graph embeddings for classification. We initialised the weights of the final linear layer using Xavier Initialization; used Binary Cross Entropy Loss with logits as our loss function and Adam optimizer. The values of hyperparameters are specified in \textbf{Table \ref{hyper}}, and we explain our GNN specifications in \textbf{sub-section \ref{limitation}}.
+
+
+\begin{table}[htbp]
+
+\caption{Graph Neural Network Hyperparameters}
+\begin{center}
+\begin{tabular}{|cccccc|}
+\hline
+\multicolumn{6}{|c|}{\textbf{Hyperparameters}} \\ \hline
+\multicolumn{1}{|c|}{\multirow{2}{*}{\textbf{}}} &
+  \multicolumn{3}{c|}{\textbf{No output features}} &
+  \multicolumn{1}{c|}{\multirow{2}{*}{\textbf{Epochs}}} &
+  \multirow{2}{*}{\textbf{\begin{tabular}[c]{@{}c@{}}Learning\\ rate\end{tabular}}} \\ \cline{2-4}
+\multicolumn{1}{|c|}{} &
+  \multicolumn{1}{c|}{\textbf{GCN 1}} &
+  \multicolumn{1}{c|}{\textbf{GCN 2}} &
+  \multicolumn{1}{c|}{\textbf{Linear}} &
+  \multicolumn{1}{c|}{} &
+   \\ \hline
+\multicolumn{1}{|c|}{\textbf{Risk}} &
+  \multicolumn{1}{c|}{32} &
+ 
+  \multicolumn{1}{c|}{20} &
+  \multicolumn{1}{c|}{1} &
+  \multicolumn{1}{c|}{100} &
+  0.0015 \\ \hline
+\multicolumn{1}{|c|}{\textbf{Reward}} &
+  \multicolumn{1}{c|}{32} &
+  \multicolumn{1}{c|}{20} &
+  \multicolumn{1}{c|}{1} &
+  \multicolumn{1}{c|}{100} &
+  0.0001 \\ \hline
+\end{tabular}
+\label{hyper}
+\end{center}
+\end{table}
+
+
+This approach was primarily implemented using PyTorch Geometric library and the PyTorch framework.
+
+\section{Results}
+
+Overall, the Logistic Regression model with event and tracking data is the best performer for both pass risk and reward estimations. The GNN approach did not perform well.
+
+\subsection{Metrics for evaluation}
+As the meaningful output of the model for us is the probability of an event (pass completed or pass leading to chances), we are not interested in the accuracy of the classifiers. Instead, we use \textbf{Area under the ROC curve (AUC)} and the \textbf{log-loss function} as our evaluation metrics. 
+
+AUC is a threshold invariant metric that demonstrates a model's ability to distinguish between positive and negative labels. An AUC measure ranges from 0 to 1, with 0.5 meaning a classifier have no discriminatory power, 1 meaning it perfectly separate labels in the correct order (0 also means a perfect separation, just in the opposite order). This is useful to assess our approaches' ability to distinguish completed passes from non-completed passes, and passes leading to a chance from passes not leading to a chance.
+
+Log-loss function is among standard proper scoring rules (measures that score probability estimates or predictions) for categorical targets \parencite{scoringrule}. This loss function captures the sum of negative log of the difference between the model's probability output and the actual label: \(\sum_{i=1}^{n} -y_i\times log(q_i)-(1-y_i)\times  log(1-q_i)\). This is useful to assess our approaches' ability to quantify the probability of a pass to be completed / to lead to a chance.
+
+
+
+\subsection{Baseline model - pass height}
+We also created a Naive baseline model for comparison, which only uses the percentages of pass completed and pass leading to chance for each of the 3 pass heights as captured directly in the raw event data set. The Naive model's performances can be found in \textbf{Table \ref{naiveperf}} (detailed percentages of each category specified in \textbf{Table \ref{naivelabel}}): 
+
+\begin{table}[htbp]
+\caption{\%Pass completion and Pass leading to chances \\ by Pass Height as input for Naive model}
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{} & \textbf{\begin{tabular}[c]{@{}c@{}}\%Pass completed\end{tabular}} & \textbf{\begin{tabular}[c]{@{}c@{}}\%Pass lead to chance\end{tabular}} \\ \hline
+\textbf{Ground Pass} & 93.4 & 10.5 \\ \hline
+\textbf{Low Pass}    & 70.4 & 11.6 \\ \hline
+\textbf{High Pass}   & 47.0 & 14.5 \\ \hline
+\textbf{Total}       & 83.8 & 11.1 \\ \hline
+\end{tabular}
+\label{naivelabel}
+\end{center}
+\end{table}
+
+\begin{table}[htbp]
+\caption{Naive model performances}
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{}                                                                & \textbf{AUC} & \textbf{Log-loss} \\ \hline
+\textbf{\begin{tabular}[c]{@{}c@{}}Naive Risk Model\end{tabular}}      & 0.777        & 0.350             \\ \hline
+\textbf{\begin{tabular}[c]{@{}c@{}}Naive Reward Model\end{tabular}} & 0.530        & 0.350             \\ \hline
+\end{tabular}
+\label{naiveperf}
+\end{center}
+\end{table}
+
+\subsection{Risk models}
+All three models perform generally well, with no models exhibiting the issue of over-fitting. 
+
+
+\begin{table}[htbp]
+
+\caption{Pass Risk Models performances}
+\begin{center}
+\begin{tabular}{|c|cc|cc|}
+\hline
+\multirow{2}{*}{\textbf{}} & \multicolumn{2}{c|}{\textbf{Risk-Train}}              & \multicolumn{2}{c|}{\textbf{Risk-Test}}              \\ \cline{2-5} 
+                           & \multicolumn{1}{c|}{\textbf{AUC}} & \textbf{Log-loss} & \multicolumn{1}{c|}{\textbf{AUC}} & \textbf{Log-loss} \\ \hline
+
+\textbf{\begin{tabular}[c]{@{}c@{}}LR (Event only)\end{tabular}}     & \multicolumn{1}{c|}{0.876} & 0.297 & \multicolumn{1}{c|}{0.881} & 0.299 \\ \hline
+\textbf{\begin{tabular}[c]{@{}c@{}}LR (Event+Tracking)\end{tabular}} & \multicolumn{1}{c|}{0.929} & 0.241 & \multicolumn{1}{c|}{0.932} & 0.240 \\ \hline
+\textbf{\begin{tabular}[c]{@{}c@{}}Graph NN\end{tabular}}           & \multicolumn{1}{c|}{0.718} & 0.283 & \multicolumn{1}{c|}{0.714} & 0.292 \\ \hline
+\end{tabular}
+\label{result_risk}
+\end{center}
+\end{table}
+
+The log-loss of the GNN is comparable to the logistic regression model that uses event-only data, however, the AUC is significantly lower. In fact, the Naive model outperforms the GNN for this metric, which indicate that the GNN does not distinguish incomplete passes from completed passes well. The Logistic Regression model with both event and tracking data is a significant improvement in both log-loss and AUC compared to the event-only regression. This suggests that the hand-crafted features from pass freeze-frames do add to the model inputs. 
+
+\begin{figure}[htbp]
+
+\centerline{\includegraphics[width=0.35\textwidth]{gnn_risk_loss.png}}
+\caption{\textbf{GNN for Pass Risk: Loss values after each epoch.}}
+\label{gnnriskresult}
+\end{figure}
+
+\subsection{Reward models}
+Both Logistic Regression models performed significantly better than the Naive model, with AUC around 0.78-0.79 compared to 0.35 and log-loss of 0.29-0.3 compared to 0.35. However, the addition of tracking features only slightly improve the performance.
+
+
+\begin{table}[htbp]
+
+\caption{Pass Reward Models performances}
+\begin{center}
+\begin{tabular}{|c|cc|cc|}
+\hline
+\multirow{2}{*}{\textbf{}} & \multicolumn{2}{c|}{\textbf{Reward-Train}}              & \multicolumn{2}{c|}{\textbf{Reward-Test}}              \\ \cline{2-5} 
+                           & \multicolumn{1}{c|}{\textbf{AUC}} & \textbf{Log-loss} & \multicolumn{1}{c|}{\textbf{AUC}} & \textbf{Log-loss} \\ \hline
+
+\textbf{\begin{tabular}[c]{@{}c@{}}LR (Event only)\end{tabular}}     & \multicolumn{1}{c|}{0.788} & 0.296 & \multicolumn{1}{c|}{0.785} & 0.290 \\ \hline
+\textbf{\begin{tabular}[c]{@{}c@{}}LR (Event+Tracking)\end{tabular}} & \multicolumn{1}{c|}{0.799} & 0.290 & \multicolumn{1}{c|}{0.795} & 0.285 \\ \hline
+\textbf{\begin{tabular}[c]{@{}c@{}}Graph NN\end{tabular}}           & \multicolumn{1}{c|}{0.5} & 0.461 & \multicolumn{1}{c|}{0.5} & 0.457 \\ \hline
+\end{tabular}
+\label{result_reward}
+\end{center}
+\end{table}
+
+After a few epochs, the GNN model converged to outputs with little variations for all passes, hence the AUC of 0.5 and identical loss values for train and test data sets (Figure \ref{gnnrewardresult}), rendering this GNN useless. 
+
+
+Discussions on possible explanations for the underperformance of the second approach can be found in \textbf{Sub-section \ref{limitation}}.
+
+\begin{figure}[htbp]
+
+\centerline{\includegraphics[width=0.33\textwidth]{gnn_reward_loss.png}}
+\caption{\textbf{GNN for Pass Reward: Loss values after each epoch.}}
+\label{gnnrewardresult}
+\end{figure}
+
+\section{Application}
+
+There are multiple possible use cases for the output of our framework. These use cases can be broken down to 3 main types: Overall team performance, player scouting, team tactical analysis, and alternative options evaluation. We will briefly discuss the latter 2 use cases, but will mainly analyse the former two in \textbf{sub-sections \ref{team} and \ref{player}}. For tactical analyses, by combining measurements of passes with the zones of the pitch from which each pass originated and in which the pass was received, we can potentially analyse each team's dangerous patterns of passing play, or areas where teams struggle to make passes while under pressure. These insights can be useful for tactical preparations against different teams. To evaluate alternative options in a particular situation, we can generate measurements for other passing targets for comparisons with the actual action to see if players had made the optimal decision.
+
+\subsection{Additional derived metrics for each pass}
+All aforementioned applications utilise similar metrics derived from the risk and reward models' outputs. This subsection goes over the main metrics used.
+
+The most basic metrics are the risk and danger (reward) of each pass, which can be aggregated by player or team level for each match, or the whole tournament. We introduce risky pass and dangerous pass flags for each pass based on these 2 metrics. These denote whether the pass is among the top 25\% of most risky / dangerous passes. For this particular tournament, the thresholds are 81.25\% expected pass completion and 15.16\% expected pass danger, respectively.
+
+Due to the logistic regression approach's performance, we will be using its output to demonstrate these applications, using again the data from Euro 2020. All the following discussions can be done on a per-game basis as well as over any period of time, however we will only focus on demonstrating analyses based on the whole competition.
+
+\subsection{Application 1: Team analysis} \label{team}
+Analysing and comparing competing teams' passing performance is particularly useful for punditry during sports events or on sports channels such as Sky Sport or BT Sport.
+
+\textbf{Figure \ref{pass_risk}} illustrate a deeper analysis of passing accuracy. Teams making the least risky passes tend to also be teams with the highest pass completion rates, meaning pass completion rate mainly demonstrate a team's tactical approach to passing. A better measure of passing accuracy would be the percentage of added complete passes (the over-performance of expected passes expressed as a percentage of total passes attempted). Teams with a positive value can be considered to have better passing quality overall. Germany only ranked third in pass completion rate, however, this is expected since their passes were on average riskier than other teams with high pass completion rate. They actually outperformed their expected passes significantly, gaining almost 2\% completed passes, making them the team with the best passing quality. Another notable team is Wales, who were estimated the riskiest passing team of the tournament. However, they slightly outperformed their expected passes, and had only the 7th lowest pass completion rate.
+
+Similarly, looking at measures for pass danger (\textbf{Figure \ref{pass_reward}}), one may be quick to conclude that Hungary were by far the worst team in terms of passes leading to chances, with only 7\% of their passes leading to a chance (21.63 passes per 90). However, Hungary actually topped while looking at percentage of added passes leading to danger (calculated in a similar way to added complete passes). This means on average, for 100 passes Hungary attempted, they would register 2 more passes leading to a chance than expected. These measures implies that Hungary were very efficient in creating chances from passes. Germany actually found themselves to be at the bottom of the pile for this statistic, meaning for all the passing quality they demonstrated, they were extremely inefficient in generating actual chances from them.
+
+
+
+\subsection{Application 2: Player performance and scouting}\label{player}
+
+We will analyse the ability to pass accurately for all players who played for teams eliminated from the Quarter-final of Euro 2020 (Belgium, Switzerland, Ukraine and Czech Republic). We captured the pass completion rate for risky (top 25\% most difficult) passes, and the number of added completed pass per 90 (the over-performance of expected passes per 90 minutes) and plotted a bubble chart (the size of each bubble is the number of passes per 90 that player made) (\textbf{Figure \ref{risky_pass}}). Interestingly, no players from Czech Republic excelled in these measures. Zooming into the players with higher than average risky pass completion rate and positive added pass completed per 90, most were central defenders. We suspect defenders' tendency to play long ball forward might be a factor. Xhaka (Switzerland), Axel Witsel (Belgium) and Malinovskiy (Ukraine) were the stand-out central midfielders who excelled at completing risky passes.
+
+
+\begin{figure*}[htbp]
+
+\centerline{\includegraphics[width=\textwidth]{risky_passers_final.png}}
+\caption{\textbf{On the left: accuracy of risky passers from quarter-finalist teams. On the right: accuracy of passers with higher than average risky pass completion rate and positive added pass completed per 90. Stand-out players: Xhaka, Schar (Switzerland); Krivtsov (Ukraine}; Vermaelen, Boyata (Belgium)}
+\label{risky_pass}
+\end{figure*}
+
+Similarly, for measurements of danger, we plotted each player's number of dangerous passes per 90 and the added passes leading to danger per 90 (\textbf{Figure \ref{dangerous_pass}}). Other than 2 elite attacking midfielders from Belgium (Hazard, De Bruyne), we also found midfielders Jankto and Borill from Czech Republic, and a disproportionate number of Switzerland players, including Schar and Xhaka again. This shows that not only are these two players successful in risky passes, they are exceptionally efficient at passes that leads to chances as well. This is particularly interesting, since Schar are generally not talked about as a great ball-playing defender, while Xhaka are more commonly referred to as a volume passer rather than a creator.
+
+\begin{figure*}[htbp]
+
+\centerline{\includegraphics[width=\textwidth]{dangerous_passers_final.png}}
+\caption{\textbf{On the left: passing performances of players from quarter-finalist teams. On the right: passing performances of players with higher than average risky pass completion rate and positive added pass completed per 90. Stand-out players: Xhaka, Schar (Switzerland); De Bruyne, Hazard (Belgium}; Borill, Jankto (Belgium)}
+\label{dangerous_pass}
+\end{figure*}
+
+% Decision making is one of the key attributes in football that separates the good players from the great players. It is useful therefore to actually measure the value of each decisions to see if it is the optimal decision in that situation. This can help improve tactical choices and improve players as well, since this allows for a clearer understanding of 
+
+
+
+% \textcite{zones}.
+% \begin{figure*}[htbp]
+% \centerline{\includegraphics[width=0.5\textwidth]{pitchzone.jpg}}
+% \caption{here for demonstration}
+% \label{fig}
+% \end{figure*}
+
+
+\section{Limitation and further work}
+
+
+\subsection{GNN Underperformance} \label{limitation}
+
+There are several factors contributing to a low performance from our GNN architecture.
+
+One factor may be our comparably limited sample size, due to the low number of matches that we had access to. Other studies typically work on data sets generated from 1-3 seasons of club league football (300-1200 matches), in comparison.
+
+We did not specify any pass-specific features in our graph input. Some features such as pass height, body part, whether it was a one-touch pass etc. were not captured in the graph or incorporated in the network. A possible solution is to incorporate these features as global attributes of each graph and include them as input nodes for the final linear layer.
+
+\textcite{Buda_2018} argued that Neural Networks in general is not robust against data sets with imbalanced classes similar to ours. There exists ways to tackle this issue (over / under-sampling etc.) that we failed to test.
+
+We did not normalise the node features before feeding into the GCN. This is due to PyTorch library's extremely rigid type requirements for input data. This can potentially balance the features' weight, and should be studied further.
+
+Although we tested numerous hyper-parameter combinations, this was done manually. The final hyper-parameters were the best combination for each model, and clearly it did not perform as well as expected. Implementing automated hyper-parameter tuning would definitely be an area of improvement.
+
+Nonetheless, however substantial previous issues may be, we would argue the main problem with our implementation is that our graph representation and GCN architecture may not be suitable for this particular problem. Graph neural network in general is relatively recent compared to other well-researched topics like the standard Convolutional Neural Network. Moreover, the nature of graphs in different domains and different problems vary significantly more than images for example (which can be considered graphs with fixed node and edge structures) \parencite{gnnbias}. Thus current GNN architectures may lack the ability to generalise to other topics with different graph structures. Our particular approach adapted a simplified version of \textcite{gnn_framework} framework, replacing their spatio-temporal input graphs with static graphs, and removed their recurrent layers. To our knowledge, there exists few alternative robust GNN architectures for sports-specific problems.
+
+Lastly, there exists the common concerns over the interpretability associated with using Neural Network models.
+
+
+\subsection{Definition of Risk and Reward}
+
+Our definitions of the risk and reward of a pass are simple binary flags. However, there exists more sophisticated way of quantifying a pass quality as discussed in \textbf{Section \ref{lit}} which we believe better captures the complexity of the game. For example, we argue that \textcite{goespassassist} measurement of defensive disruption caused by a pass or allocating reward to a sequence based on gains in possession value of each pass by \textcite{qpass} is a better representation of each pass true reward.
+
+\textcite{fernandez2019decomposing} dissected pass values even further. He measured the probability of either conceding or scoring, given a pass is successful, and the same probability, given a pass is unsuccessful. This decomposed approach would allow for much deeper analyses on decision making and tactics.
+
+It should be noted, however, that while these definitions may provide better measurements of a pass, they all require more complex feature representations. This is discussed in more detailed in the following sub-section.
+
+\subsection{Data set and Data Processing}
+As noted in \textbf{Section \ref{data}}, our data set are limited to only 51 matches in Euro 2020, therefore this output may not generalise well to tournaments of different format or level, such as club leagues, womens competitions etc.. Therefore applying this framework to a larger and more generalised data set can improve its output quality.
+
+This data set is also not a tracking data set and contains no player identification between frames. A possible solution to capture more meaningful feature representation may be to use ML techniques to infer the identity of player between each frame (i.e. guess whether a coordinate in one freeze-frame and that of the next freeze-frame are the same player). This could produce numerous additional meaningful features such as player speed and trajectory.
+
+The current data set were generated from only broadcast videos, so another improvement could be the implementation on the videos captured on a pitch-wide camera angle. This should capture the freeze-frames of all players on the field and provide more complete information.
+
+
+% \subsection{\LaTeX-Specific Advice}
+
+% Please use ``soft'' (e.g., \verb|\eqref{Eq}|) cross references instead
+% of ``hard'' references (e.g., \verb|(1)|). That will make it possible
+% to combine sections, add equations, or change the order of figures or
+% citations without having to go through the file line by line.
+
+% Please don't use the \verb|{eqnarray}| equation environment. Use
+% \verb|{align}| or \verb|{IEEEeqnarray}| instead. The \verb|{eqnarray}|
+% environment leaves unsightly spaces around relation symbols.
+
+% Please note that the \verb|{subequations}| environment in {\LaTeX}
+% will increment the main equation counter even when there are no
+% equation numbers displayed. If you forget that, you might write an
+% article in which the equation numbers skip from (17) to (20), causing
+% the copy editors to wonder if you've discovered a new method of
+% counting.
+
+% {\BibTeX} does not work by magic. It doesn't get the bibliographic
+% data from thin air but from .bib files. If you use {\BibTeX} to produce a
+% bibliography you must send the .bib files. 
+
+% {\LaTeX} can't read your mind. If you assign the same label to a
+% subsubsection and a table, you might find that Table I has been cross
+% referenced as Table IV-B3. 
+
+% {\LaTeX} does not have precognitive abilities. If you put a
+% \verb|\label| command before the command that updates the counter it's
+% supposed to be using, the label will pick up the last counter to be
+% cross referenced instead. In particular, a \verb|\label| command
+% should not go before the caption of a figure or a table.
+
+% Do not use \verb|\nonumber| inside the \verb|{array}| environment. It
+% will not stop equation numbers inside \verb|{array}| (there won't be
+% any anyway) and it might stop a wanted equation number in the
+% surrounding equation.
+
+% \subsection{Some Common Mistakes}\label{SCM}
+% \begin{itemize}
+% \item The word ``data'' is plural, not singular.
+% \item The subscript for the permeability of vacuum $\mu_{0}$, and other common scientific constants, is zero with subscript formatting, not a lowercase letter ``o''.
+% \item In American English, commas, semicolons, periods, question and exclamation marks are located within quotation marks only when a complete thought or name is cited, such as a title or full quotation. When quotation marks are used, instead of a bold or italic typeface, to highlight a word or phrase, punctuation should appear outside of the quotation marks. A parenthetical phrase or statement at the end of a sentence is punctuated outside of the closing parenthesis (like this). (A parenthetical sentence is punctuated within the parentheses.)
+% \item A graph within a graph is an ``inset'', not an ``insert''. The word alternatively is preferred to the word ``alternately'' (unless you really mean something that alternates).
+% \item Do not use the word ``essentially'' to mean ``approximately'' or ``effectively''.
+% \item In your paper title, if the words ``that uses'' can accurately replace the word ``using'', capitalize the ``u''; if not, keep using lower-cased.
+% \item Be aware of the different meanings of the homophones ``affect'' and ``effect'', ``complement'' and ``compliment'', ``discreet'' and ``discrete'', ``principal'' and ``principle''.
+% \item Do not confuse ``imply'' and ``infer''.
+% \item The prefix ``non'' is not a word; it should be joined to the word it modifies, usually without a hyphen.
+% \item There is no period after the ``et'' in the Latin abbreviation ``et al.''.
+% \item The abbreviation ``i.e.'' means ``that is'', and the abbreviation ``e.g.'' means ``for example''.
+% \end{itemize}
+% An excellent style manual for science writers is \textcite{traeinfo}.
+
+% \subsection{Authors and Affiliations}
+% \textbf{The class file is designed for, but not limited to, six authors.} A 
+% minimum of one author is required for all conference articles. Author names 
+% should be listed starting from left to right and then moving down to the 
+% next line. This is the author sequence that will be used in future citations 
+% and by indexing services. Names should not be listed in columns nor group by 
+% affiliation. Please keep your affiliations as succinct as possible (for 
+% example, do not differentiate among departments of the same organization).
+
+% \subsection{Identify the Headings}
+% Headings, or heads, are organizational devices that guide the reader through 
+% your paper. There are two types: component heads and text heads.
+
+% Component heads identify the different components of your paper and are not 
+% topically subordinate to each other. Examples include Acknowledgments and 
+% References and, for these, the correct style to use is ``Heading 5''. Use 
+% ``figure caption'' for your Figure captions, and ``table head'' for your 
+% table title. Run-in heads, such as ``Abstract'', will require you to apply a 
+% style (in this case, italic) in addition to the style provided by the drop 
+% down menu to differentiate the head from the text.
+
+% Text heads organize the topics on a relational, hierarchical basis. For 
+% example, the paper title is the primary text head because all subsequent 
+% material relates and elaborates on this one topic. If there are two or more 
+% sub-topics, the next level head (uppercase Roman numerals) should be used 
+% and, conversely, if there are not at least two sub-topics, then no subheads 
+% should be introduced.
+
+% \subsection{Figures and Tables}
+% \paragraph{Positioning Figures and Tables} Place figures and tables at the top and 
+% bottom of columns. Avoid placing them in the middle of columns. Large 
+% figures and tables may span across both columns. Figure captions should be 
+% below the figures; table heads should appear above the tables. Insert 
+% figures and tables after they are cited in the text. Use the abbreviation 
+% ``Fig.~\ref{fig}'', even at the beginning of a sentence.
+
+% \begin{table}[htbp]
+% \caption{Table Type Styles}
+% \begin{center}
+% \begin{tabular}{|c|c|c|c|}
+% \hline
+% \textbf{Table}&\multicolumn{3}{|c|}{\textbf{Table Column Head}} \\
+% \cline{2-4} 
+% \textbf{Head} & \textbf{\textit{Table column subhead}}& \textbf{\textit{Subhead}}& \textbf{\textit{Subhead}} \\
+% \hline
+% copy& More table copy$^{\mathrm{a}}$& &  \\
+% \hline
+% \multicolumn{4}{l}{$^{\mathrm{a}}$Sample of a Table footnote.}
+% \end{tabular}
+% \label{tab1}
+% \end{center}
+% \end{table}
+
+% \begin{figure}[htbp]
+% \centerline{\includegraphics{fig1.png}}
+% \caption{Example of a figure caption.}
+% \label{fig}
+% \end{figure}
+
+% Figure Labels: Use 8 point Times New Roman for Figure labels. Use words 
+% rather than symbols or abbreviations when writing Figure axis labels to 
+% avoid confusing the reader. As an example, write the quantity 
+% ``Magnetization'', or ``Magnetization, M'', not just ``M''. If including 
+% units in the label, present them within parentheses. Do not label axes only 
+% with units. In the example, write ``Magnetization (A/m)'' or ``Magnetization 
+% \{A[m(1)]\}'', not just ``A/m''. Do not label axes with a ratio of 
+% quantities and units. For example, write ``Temperature (K)'', not 
+% ``Temperature/K''.
+
+\newpage
+
+\section*{Acknowledgement}
+
+I want to thank my supervisor, Dr. Anthony Constantinou for the invaluable advice and guidance, and for allowing me to have the autonomy to take ownership of the project. Thanks also to Statsbomb for making this novel data set available to the public. 
+
+I want to send my deepest love and gratitudes to my friends and family who offered help in whatever way they can throughout the process. I will send everyone cheesy words individually.
+
+And finally, I want to thank Gary Lineker for the iconic quote used in the beginning of this report. This project would never have come to fruition if it were not for trying to prove to you (and Bill Shankly) that football is not a simple game.
+
+
+
+% \section*{References}
+
+\printbibliography
+
+\newpage
+\onecolumn
+\begin{landscape}
+\appendix
+
+\begin{table}[htbp]
+
+\caption{List of all hand-crafted features}
+\begin{center}
+\begin{tabular}{|c|l|c|c|c|}
+\hline
+\textbf{Features} &
+  \multicolumn{1}{c|}{\textbf{Description}} &
+  \textbf{Type} &
+  \textbf{Expected effect xPass} &
+  \multicolumn{1}{l|}{\textbf{Expected effect xDanger}} \\ \hline
+\textbf{pass\_height} &
+  Annotated pass height. Either ground\_pass, low\_pass or high pass &
+  Categorical &
+  - &
+  + \\ \hline
+\textbf{pass\_angle} &
+  Categorical pass angle. Can be backward, sideways or forward &
+  Categorical &
+  - &
+  + \\ \hline
+\textbf{minute} &
+  Number of minutes the game has played &
+  Continuous &
+  - &
+  + \\ \hline
+\textbf{pass\_length} &
+  Length of the pass in yards &
+  Continuous &
+  - &
+  + \\ \hline
+\textbf{pass\_switch} &
+  Whether the pass was a switch &
+  Binary &
+  - &
+  + \\ \hline
+\textbf{under\_pressure} &
+  Whether the passer was under pressure &
+  Binary &
+  - &
+  - \\ \hline
+\textbf{pass\_cross} &
+  Whether the pass was a cross &
+  Binary &
+  - &
+  + \\ \hline
+\textbf{pass\_through\_ball} &
+  Whether the pass was a throughball &
+  Binary &
+  - &
+  + \\ \hline
+\textbf{br\_pressure} &
+  Whether the pass was received under pressure &
+  Binary &
+  - &
+  - \\ \hline
+\textbf{one\_touch\_pass} &
+  Whether the pass was a one touch pass &
+  Binary &
+  - &
+  - \\ \hline
+\textbf{pass\_from\_duel} &
+  Whether the pass was from a duel &
+  Binary &
+  - &
+  - \\ \hline
+\textbf{carry\_dist} &
+  Distance carried before pass &
+  Continuous &
+  - &
+  + \\ \hline
+\textbf{carry\_speed} &
+  Average speed carried before pass &
+  Continuous &
+  - &
+  + \\ \hline
+\textbf{pass\_loc\_x} &
+  X-coordinate of pass origination &
+  Continuous &
+  NaN &
+  NaN \\ \hline
+\textbf{pass\_loc\_y} &
+  Y-coordinate of pass origination &
+  Continuous &
+  NaN &
+  NaN \\ \hline
+\textbf{deadball} &
+  Whether the pass was from a deadball (corner, freekick etc.) &
+  Binary &
+  - &
+  + \\ \hline
+\textbf{time\_since\_poss} &
+  Time elapsed since the start of current possession chain &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{from\_keeper\_held} &
+  Whether the pass was from a deadball (corner, freekick etc.) &
+  Binary &
+  + &
+  - \\ \hline
+\textbf{pc\_5ft\_actor\_oppo} &
+  Percentage of visible opponents within  5 feet of the passer &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{pc\_oppo\_closer\_to\_goal\_passer} &
+  Percentage of visible opponents closer to goal than passer &
+  Continuous &
+  + &
+  - \\ \hline
+\textbf{oppo\_min\_dist\_passer} &
+  Distance of the closest opponent to the passer &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{min\_degree\_diff\_passer\_oppo} &
+  Opponent's closest degree to passing angle within the pass radius &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{closest\_oppo\_degree\_diff\_passer} &
+  \begin{tabular}[c]{@{}l@{}}Degree difference of the closest opponent to the passer \\ vs passing angle\end{tabular} &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{pc\_5ft\_br\_oppo} &
+  \begin{tabular}[c]{@{}l@{}}Percentage of visible opponents within  5 feet of \\ the ball receipt location\end{tabular} &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{pc\_oppo\_closer\_to\_goal\_br} &
+  \begin{tabular}[c]{@{}l@{}}Percentage of visible opponents closer to goal than \\ ball receipt location\end{tabular} &
+  Continuous &
+  + &
+  - \\ \hline
+\textbf{oppo\_min\_dist\_br} &
+  Distance of the closest opponent &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{min\_degree\_diff\_br\_oppo} &
+  \begin{tabular}[c]{@{}l@{}}Degree difference of closest opponent vs \\ ball receipt angle to goal\end{tabular} &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{closest\_oppo\_degree\_diff\_br} &
+  \begin{tabular}[c]{@{}l@{}}Degree difference of the closest opponent to the \\ ball receipt location \\ vs ball receipt angle to goal\end{tabular} &
+  Continuous &
+  - &
+  - \\ \hline
+\textbf{min\_dist\_from\_br\_teammate} &
+  \begin{tabular}[c]{@{}l@{}}Minimum distance of a teammate from the \\ ball receipt position\end{tabular} &
+  Continuous &
+  + &
+  + \\ \hline
+\textbf{pass\_cut\_back} &
+  Whether the pass was from a cutback &
+  Binary &
+  - &
+  + \\ \hline
+\end{tabular}
+\label{lr_var}
+\end{center}
+\end{table}
+\end{landscape}
+
+\begin{figure*}[htbp]
+\caption{\textbf{TOP AND BOTTOM RANKING TEAMS FOR DIFFERENT MEASURES OF PASS RISK}}
+\centerline{\includegraphics[width=\textwidth]{pass_risk_team_analysis.png}}
+
+\label{pass_risk}
+\end{figure*}
+
+\begin{figure*}[htbp]
+\caption{\textbf{TOP AND BOTTOM RANKING TEAMS FOR DIFFERENT MEASURES OF PASS DANGER}}
+\centerline{\includegraphics[width=\textwidth]{pass_reward_team_analysis.png}}
+\label{pass_reward}
+\end{figure*}
+
+
+
+
+
+% \begin{figure}[htbp]
+
+% \caption{\textbf{18 ZONE OF A FOOTBALL PITCH \parencite{zones}}}
+% \vspace*{3mm}
+% \centerline{\includegraphics[width=0.5\textwidth]{pitchzone.jpg}}
+
+% \label{zones}
+% \end{figure}
+
+
+
+
+
+
+\end{document}
