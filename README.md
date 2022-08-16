@@ -1,8 +1,8 @@
 # My MSc. final project on measuring risk and reward of passing using Statsbomb's Open 360 data.
 
-## There are 4 Jupyter Notebook used for this project. These have been ordered accordingly. They follow the work flow laid out in the report.
+## The raw data source for this project can be found here: https://github.com/statsbomb/open-data/tree/master/data. (Only matches from Men's Euro 2020 were included)
 
-## The data source for this project can be found here: https://github.com/statsbomb/open-data/tree/master/data. (Only matches from Men's Euro 2020 were included)
+## There are 4 Jupyter Notebook used for this project. These have been ordered accordingly. They follow the work flow laid out in the report.
 
 1. The first Jupyter Notebook extracts data from source files to generate all features and outputs the master_data.json file for handcrafted features (used in the second Jupyter Notebook), and tracking_data.json file for graph representations (used in the third Jupyter Notebook).
 
